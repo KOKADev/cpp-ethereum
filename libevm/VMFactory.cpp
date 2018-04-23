@@ -20,6 +20,9 @@
 #include "LegacyVM.h"
 #include "interpreter.h"
 
+#include <boost/dll.hpp>
+#include <boost/filesystem.hpp>
+
 #if ETH_EVMJIT
 #include <evmjit.h>
 #endif
@@ -28,6 +31,8 @@
 #include <hera.h>
 #endif
 
+namespace dll = boost::dll;
+namespace fs = boost::filesystem;
 namespace po = boost::program_options;
 
 namespace dev
@@ -111,6 +116,25 @@ void parseEvmcOptions(const std::vector<std::string>& _opts)
         s_evmcOptions.emplace_back(std::move(name), std::move(value));
     }
 }
+
+void loadEvmcDlls(const std::vector<std::string>& _paths)
+{
+    for (auto& path : _paths)
+    {
+        auto symbols = dll::library_info{path}.symbols();
+        auto it = std::find_if(symbols.begin(), symbols.end(),
+            [](const std::string& symbol) { return symbol.find("evmc_create_") == 0; });
+        if (it == symbols.end())
+        {
+            std::cerr << "EVMC create function not found in " << path << "\n";
+        }
+        const std::string& create_fn_name = *it;
+
+        evmc_create_interpreter()
+
+        create_fn = dll::import<evmc_create_fn>(vm_path, create_fn_name);
+    }
+}
 }
 
 std::vector<std::pair<std::string, std::string>>& evmcOptions() noexcept
@@ -147,7 +171,11 @@ po::options_description vmProgramOptions(unsigned _lineLength)
         po::value<std::vector<std::string>>()
             ->value_name("<option>=<value>")
             ->notifier(parseEvmcOptions),
-        "EVM-C option");
+        "EVMC option");
+
+    add("evmc-load",
+        po::value<std::vector<std::string>>()->value_name("<path>")->notifier(loadEvmcDlls),
+        "Path to EVMC dynamic loaded VM");
 
     return opts;
 }
